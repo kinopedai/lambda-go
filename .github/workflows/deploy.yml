@@ -1,0 +1,124 @@
+name: Deploy with Terraform
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: ap-northeast-1
+  TF_VERSION: 1.6.0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Run tests
+      run: go test -v ./...
+
+  plan:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Build Lambda function
+      run: |
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bootstrap main.go
+        zip lambda-deployment-package.zip bootstrap
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+    
+    - name: Terraform Init
+      working-directory: ./infrastructure
+      run: terraform init
+    
+    - name: Terraform Plan
+      working-directory: ./infrastructure
+      run: terraform plan -no-color
+    
+    - name: Save plan
+      if: github.event_name == 'pull_request'
+      working-directory: ./infrastructure
+      run: terraform plan -no-color -out=tfplan
+    
+    - name: Upload plan
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v3
+      with:
+        name: tfplan
+        path: infrastructure/tfplan
+
+  deploy:
+    needs: [test, plan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Build Lambda function
+      run: |
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bootstrap main.go
+        zip lambda-deployment-package.zip bootstrap
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+    
+    - name: Terraform Init
+      working-directory: ./infrastructure
+      run: terraform init
+    
+    - name: Terraform Apply
+      working-directory: ./infrastructure
+      run: terraform apply -auto-approve
+    
+    - name: Get API Gateway URL
+      working-directory: ./infrastructure
+      run: |
+        echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
+    
+    - name: Test deployed function
+      run: |
+        sleep 10  # Wait for deployment to propagate
+        curl -X POST "$API_URL" \
+          -H "Content-Type: application/json" \
+          -d '{"text": "Hello, GitHub Actions!"}' \
+          || echo "Test request failed, but deployment might still be successful"
