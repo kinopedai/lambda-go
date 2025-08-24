@@ -93,7 +93,16 @@ resource "aws_api_gateway_deployment" "char_counter_deployment" {
   ]
 
   rest_api_id = aws_api_gateway_rest_api.char_counter_api.id
-  stage_name  = "prod"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_stage" "char_counter_stage" {
+  deployment_id = aws_api_gateway_deployment.char_counter_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.char_counter_api.id
+  stage_name    = "prod"
 }
 
 # Variables
@@ -109,7 +118,7 @@ variable "function_name" {
 
 # Outputs
 output "api_gateway_url" {
-  value = "https://${aws_api_gateway_rest_api.char_counter_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_deployment.char_counter_deployment.stage_name}/count"
+  value = "https://${aws_api_gateway_rest_api.char_counter_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.char_counter_stage.stage_name}/count"
 }
 
 output "lambda_function_name" {
