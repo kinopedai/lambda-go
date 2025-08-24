@@ -111,6 +111,7 @@ jobs:
       run: |
         terraform import aws_iam_role.lambda_role char-counter-lambda-role || echo "Role already managed by Terraform"
         terraform import aws_lambda_function.char_counter char-counter-lambda || echo "Function already managed by Terraform"
+        terraform import aws_lambda_permission.api_gateway char-counter-lambda/AllowExecutionFromAPIGateway || echo "Permission already managed by Terraform"
     
     - name: Terraform Apply
       working-directory: ./infrastructure
