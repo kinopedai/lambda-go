@@ -120,8 +120,9 @@ jobs:
     - name: Get API Gateway URL
       working-directory: ./infrastructure
       run: |
-        API_URL=$(terraform output -raw api_gateway_url)
+        API_URL=$(terraform output -raw api_gateway_url | tr -d '\n\r' | sed 's/::.*$//')
         echo "API_URL=$API_URL" >> $GITHUB_ENV
+        echo "Extracted API URL: $API_URL"
     
     - name: Test deployed function
       run: |
